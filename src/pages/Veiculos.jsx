@@ -5,9 +5,10 @@ import { canManageVehicles, canManageMaintenance } from '../utils/permissions';
 import {
     Car, Search, Plus, Filter, AlertCircle, TrendingUp, TrendingDown, ClipboardCheck, Edit2, Trash2,
     MapPin, ExternalLink, Calendar, PenTool, LayoutGrid, List, FileSpreadsheet,
-    Wrench, CheckCircle, AlertTriangle, Camera, Gauge, FileText, Upload
+    Wrench, CheckCircle, AlertTriangle, Camera, Gauge, FileText, Upload, Download
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import Tesseract from 'tesseract.js';
 
 export default function Veiculos() {
     const { user } = useAuth();
@@ -54,7 +55,8 @@ export default function Veiculos() {
         const lowTerm = searchTerm.toLowerCase();
         return list.filter(v =>
             v.plate.toLowerCase().includes(lowTerm) ||
-            v.model.toLowerCase().includes(lowTerm)
+            v.model.toLowerCase().includes(lowTerm) ||
+            (v.prefix && v.prefix.toLowerCase().includes(lowTerm))
         );
     }, [vehicles, searchTerm, user?.role, user?.station_id]);
 
@@ -266,13 +268,37 @@ export default function Veiculos() {
         setKmPhoto(null);
     };
 
-    const handlePhotoUpload = (e) => {
+    const [ocrProcessing, setOcrProcessing] = useState(false);
+
+    const handlePhotoUpload = async (e) => {
         const file = e.target.files[0];
         if (file) {
-            // Mock de object URL pra preview da foto apenas
-            setKmPhoto(URL.createObjectURL(file));
-            // SIMULAÇÃO DE OCR - apenas um fake gerando 50km a mais se tirar foto kkk
-            // O requisito pede KM digitado ou por foto
+            const imageUrl = URL.createObjectURL(file);
+            setKmPhoto(imageUrl);
+            setOcrProcessing(true);
+
+            try {
+                // Tesseract OCR pra extrair números
+                const result = await Tesseract.recognize(file, 'eng', {
+                    logger: (m) => console.log(m),
+                });
+
+                // Pega apenas números do resultado
+                const text = result.data.text;
+                const numbersOnly = text.replace(/\D/g, '');
+
+                if (numbersOnly && numbersOnly.length > 0) {
+                    setKmValue(numbersOnly);
+                    alert(`Leitura Automática: ${numbersOnly} km identificados. (Verifique se está correto)`);
+                } else {
+                    alert('Não foi possível ler o KM na imagem. Por favor, digite manualmente.');
+                }
+            } catch (err) {
+                console.error("Erro no OCR:", err);
+                alert('Erro ao processar imagem.');
+            } finally {
+                setOcrProcessing(false);
+            }
         }
     };
 
@@ -373,7 +399,7 @@ export default function Veiculos() {
                 <Search size={20} color="var(--text-secondary)" />
                 <input
                     type="text"
-                    placeholder="Pesquisar por placa ou modelo..."
+                    placeholder="Pesquisar por placa, modelo ou prefixo..."
                     style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', width: '100%', outline: 'none', fontSize: '1rem' }}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -559,14 +585,18 @@ export default function Veiculos() {
 
                             <div style={{ border: '2px dashed var(--border-color)', borderRadius: '0.5rem', padding: '1rem', textAlign: 'center' }}>
                                 {kmPhoto ? (
-                                    <img src={kmPhoto} alt="Foto Painel" style={{ width: '100%', maxHeight: '150px', objectFit: 'cover', borderRadius: '0.25rem' }} />
+                                    <div style={{ position: 'relative' }}>
+                                        <img src={kmPhoto} alt="Foto Painel" style={{ width: '100%', maxHeight: '150px', objectFit: 'cover', borderRadius: '0.25rem' }} />
+                                        <button type="button" onClick={(e) => { e.stopPropagation(); setKmPhoto(null); }} style={{ position: 'absolute', top: 5, right: 5, background: 'red', color: 'white', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>X</button>
+                                    </div>
                                 ) : (
                                     <div style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }} onClick={() => fileInputRef.current?.click()}>
                                         <Camera size={32} color="var(--primary)" />
                                         <span style={{ fontSize: '0.875rem', color: 'var(--text-primary)' }}>Tirar foto do painel</span>
+                                        {ocrProcessing && <span style={{ fontSize: '0.75rem', color: 'var(--primary)' }}>Processando Imagem (OCR)...</span>}
                                     </div>
                                 )}
-                                <input type="file" accept="image/*" capture="environment" ref={fileInputRef} style={{ display: 'none' }} onChange={handlePhotoUpload} />
+                                <input type="file" accept="image/*" capture="environment" ref={fileInputRef} style={{ display: 'none' }} onChange={handlePhotoUpload} disabled={ocrProcessing} />
                             </div>
 
                             <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
@@ -954,16 +984,72 @@ function ChecklistModal({ vehicleId, onClose }) {
     const [loading, setLoading] = useState(false);
 
     const [form, setForm] = useState({
-        tires: 'Bom',
-        oil: 'OK',
+        type: 'Saída', // Saída ou Retorno
+
+        // Itens Sim/Não (true/false para simplificar no state, ou string)
+        macaco: false,
+        estepe: false,
+        chaveRoda: false,
+        triangulo: false,
+        radio: false,
+        antena: false,
+        semParar: false,
+        tapetes: false,
+        calotas: false,
+        extintor: false,
+        cartaoTicketCar: false,
+        arCondicionado: false,
+        crlv: false,
+        bateria: false,
+        trava: false,
+        manual: false,
+        giroflex: false,
+
+        // Estado dos Pneus
+        pneusDianteiros: 'Bom',
+        pneusTraseiros: 'Bom',
+        pneuEstepe: 'Bom',
+
+        // Hodômetro (Novo)
+        currentKm: '',
+        kmPhoto: null,
+
+        // Outros
         fuelLevel: '1/2',
-        lights: true,
-        windowsMirrors: 'OK',
-        cleanliness: 'Limpo',
         damagesDiagram: null,
         observations: '',
         signature: null
     });
+
+    const fileInputRef = useRef(null);
+    const [ocrProcessing, setOcrProcessing] = useState(false);
+
+    const handlePhotoUploadChecklist = async (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const imageUrl = URL.createObjectURL(file);
+            setForm(prev => ({ ...prev, kmPhoto: imageUrl }));
+            setOcrProcessing(true);
+
+            try {
+                const result = await Tesseract.recognize(file, 'eng');
+                const text = result.data.text;
+                const numbersOnly = text.replace(/\D/g, '');
+
+                if (numbersOnly && numbersOnly.length > 0) {
+                    setForm(prev => ({ ...prev, currentKm: numbersOnly }));
+                    alert(`Leitura Automática: ${numbersOnly} km identificados.`);
+                } else {
+                    alert('Não foi possível ler o KM na imagem. Por favor, digite manualmente.');
+                }
+            } catch (err) {
+                console.error("Erro no OCR:", err);
+                alert('Erro ao processar imagem.');
+            } finally {
+                setOcrProcessing(false);
+            }
+        }
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -999,35 +1085,115 @@ function ChecklistModal({ vehicleId, onClose }) {
                 <form onSubmit={handleSubmit}>
                     {step === 1 && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                            <div className="input-group">
-                                <label className="input-label">Pneus</label>
-                                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                    {['Bom', 'Ruim'].map(v => (
-                                        <button key={v} type="button" onClick={() => setForm({ ...form, tires: v })} className={form.tires === v ? 'btn btn-primary' : 'btn btn-outline'} style={{ flex: '1 1 auto', minWidth: '40%' }}>{v}</button>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+
+                                {/* Coluna 1: Itens Sim/Não */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+
+                                    <div style={{ marginBottom: '1rem' }}>
+                                        <h3 style={{ fontSize: '0.875rem', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>Tipo de Checklist</h3>
+                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                            <button type="button" onClick={() => setForm({ ...form, type: 'Saída' })} className={form.type === 'Saída' ? 'btn btn-primary' : 'btn btn-outline'} style={{ flex: 1, padding: '0.5rem' }}>Saída</button>
+                                            <button type="button" onClick={() => setForm({ ...form, type: 'Retorno' })} className={form.type === 'Retorno' ? 'btn btn-primary' : 'btn btn-outline'} style={{ flex: 1, padding: '0.5rem' }}>Retorno</button>
+                                        </div>
+                                    </div>
+
+                                    <h3 style={{ fontSize: '0.875rem', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Equipamentos (Sim / Não)</h3>
+                                    {[
+                                        { key: 'macaco', label: 'Macaco' },
+                                        { key: 'estepe', label: 'Estepe' },
+                                        { key: 'chaveRoda', label: 'Chave de Roda' },
+                                        { key: 'triangulo', label: 'Triângulo' },
+                                        { key: 'radio', label: 'Rádio' },
+                                        { key: 'antena', label: 'Antena' },
+                                        { key: 'semParar', label: 'Sem Parar' },
+                                        { key: 'tapetes', label: 'Tapetes' },
+                                        { key: 'calotas', label: 'Calotas' },
+                                        { key: 'extintor', label: 'Extintor' },
+                                        { key: 'cartaoTicketCar', label: 'Cartão Ticket Car' },
+                                        { key: 'arCondicionado', label: 'Ar Condicionado' },
+                                        { key: 'crlv', label: 'CRLV' },
+                                        { key: 'bateria', label: 'Bateria' },
+                                        { key: 'trava', label: 'Trava' },
+                                        { key: 'manual', label: 'Manual' },
+                                        { key: 'giroflex', label: 'Giroflex' },
+                                    ].map(item => (
+                                        <div key={item.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.25rem 0', borderBottom: '1px solid var(--border-color)' }}>
+                                            <span style={{ fontSize: '0.875rem' }}>{item.label}</span>
+                                            <div style={{ display: 'flex', gap: '0.25rem' }}>
+                                                <button type="button" onClick={() => setForm({ ...form, [item.key]: true })} className={form[item.key] ? 'btn btn-primary' : 'btn btn-outline'} style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', minWidth: '40px' }}>Sim</button>
+                                                <button type="button" onClick={() => setForm({ ...form, [item.key]: false })} className={!form[item.key] ? 'btn btn-primary' : 'btn btn-outline'} style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', minWidth: '40px' }}>Não</button>
+                                            </div>
+                                        </div>
                                     ))}
                                 </div>
-                            </div>
-                            <div className="input-group">
-                                <label className="input-label">Óleo</label>
-                                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                    {['OK', 'Baixo'].map(v => (
-                                        <button key={v} type="button" onClick={() => setForm({ ...form, oil: v })} className={form.oil === v ? 'btn btn-primary' : 'btn btn-outline'} style={{ flex: '1 1 auto', minWidth: '40%' }}>{v}</button>
-                                    ))}
+
+                                {/* Coluna 2: Pneus e Combustível */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <h3 style={{ fontSize: '0.875rem', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>Nível de Combustível</h3>
+                                        <select className="input-field" value={form.fuelLevel} onChange={e => setForm({ ...form, fuelLevel: e.target.value })}>
+                                            {['Vazio', '1/8', '1/4', '3/8', '1/2', '5/8', '3/4', '7/8', 'Cheio'].map(v => <option key={v} value={v}>{v}</option>)}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <h3 style={{ fontSize: '0.875rem', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>Estado dos Pneus</h3>
+
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                            {[
+                                                { key: 'pneusDianteiros', label: 'Dianteiros' },
+                                                { key: 'pneusTraseiros', label: 'Traseiros' },
+                                                { key: 'pneuEstepe', label: 'Estepe' }
+                                            ].map(pneu => (
+                                                <div key={pneu.key} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                                    <span style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>{pneu.label}</span>
+                                                    <div style={{ display: 'flex', gap: '0.25rem' }}>
+                                                        {['Bom', 'Médio', 'Ruim'].map(estado => (
+                                                            <button
+                                                                key={estado}
+                                                                type="button"
+                                                                onClick={() => setForm({ ...form, [pneu.key]: estado })}
+                                                                className={form[pneu.key] === estado ? 'btn btn-primary' : 'btn btn-outline'}
+                                                                style={{ flex: 1, padding: '0.25rem 0', fontSize: '0.75rem' }}
+                                                            >
+                                                                {estado}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+                                        <h3 style={{ fontSize: '0.875rem', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>Quilometragem (Hodômetro)</h3>
+
+                                        <div className="input-group" style={{ marginBottom: '0.5rem' }}>
+                                            <input type="number" className="input-field" placeholder="KM Atual (Digite ou Tire Foto)" value={form.currentKm} onChange={e => setForm({ ...form, currentKm: e.target.value })} required />
+                                        </div>
+
+                                        <div style={{ border: '2px dashed var(--border-color)', borderRadius: '0.5rem', padding: '0.5rem', textAlign: 'center' }}>
+                                            {form.kmPhoto ? (
+                                                <div style={{ position: 'relative' }}>
+                                                    <img src={form.kmPhoto} alt="Foto Painel" style={{ width: '100%', maxHeight: '100px', objectFit: 'cover', borderRadius: '0.25rem' }} />
+                                                    <button type="button" onClick={(e) => { e.stopPropagation(); setForm({ ...form, kmPhoto: null }); }} style={{ position: 'absolute', top: 5, right: 5, background: 'red', color: 'white', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>X</button>
+                                                </div>
+                                            ) : (
+                                                <div style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem', padding: '0.5rem' }} onClick={() => fileInputRef.current?.click()}>
+                                                    <Camera size={24} color="var(--primary)" />
+                                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-primary)' }}>Capturar KM</span>
+                                                    {ocrProcessing && <span style={{ fontSize: '0.7rem', color: 'var(--primary)' }}>Processando...</span>}
+                                                </div>
+                                            )}
+                                            <input type="file" accept="image/*" capture="environment" ref={fileInputRef} style={{ display: 'none' }} onChange={handlePhotoUploadChecklist} disabled={ocrProcessing} />
+                                        </div>
+                                    </div>
+
                                 </div>
                             </div>
-                            <div className="input-group">
-                                <label className="input-label">Nível de Combustível</label>
-                                <select className="input-field" value={form.fuelLevel} onChange={e => setForm({ ...form, fuelLevel: e.target.value })}>
-                                    {['Reserva', '1/4', '1/2', '3/4', 'Cheio'].map(v => <option key={v} value={v}>{v}</option>)}
-                                </select>
-                            </div>
-                            <div className="input-group">
-                                <label className="input-label">Iluminação / Luzes</label>
-                                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                    <button type="button" onClick={() => setForm({ ...form, lights: true })} className={form.lights ? 'btn btn-primary' : 'btn btn-outline'} style={{ flex: '1 1 auto', minWidth: '40%' }}>OK (Todas)</button>
-                                    <button type="button" onClick={() => setForm({ ...form, lights: false })} className={!form.lights ? 'btn btn-primary' : 'btn btn-outline'} style={{ flex: '1 1 auto', minWidth: '40%' }}>Falha / Queimada</button>
-                                </div>
-                            </div>
+
                             <button type="button" className="btn btn-primary" style={{ marginTop: '1rem' }} onClick={() => setStep(2)}>Próximo: Registro de Avarias</button>
                         </div>
                     )}
@@ -1040,26 +1206,8 @@ function ChecklistModal({ vehicleId, onClose }) {
                             </div>
 
                             <div className="input-group">
-                                <label className="input-label">Vidros e Espelhos</label>
-                                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                    {['OK', 'Avariado'].map(v => (
-                                        <button key={v} type="button" onClick={() => setForm({ ...form, windowsMirrors: v })} className={form.windowsMirrors === v ? 'btn btn-primary' : 'btn btn-outline'} style={{ flex: '1 1 auto', minWidth: '40%' }}>{v}</button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div className="input-group">
-                                <label className="input-label">Limpeza</label>
-                                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                    {['Limpo', 'Sujo'].map(v => (
-                                        <button key={v} type="button" onClick={() => setForm({ ...form, cleanliness: v })} className={form.cleanliness === v ? 'btn btn-primary' : 'btn btn-outline'} style={{ flex: '1 1 auto', minWidth: '40%' }}>{v}</button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div className="input-group">
                                 <label className="input-label">Observações</label>
-                                <textarea className="input-field" rows="2" value={form.observations} onChange={e => setForm({ ...form, observations: e.target.value })} placeholder="Mais detalhes sobre o estado do carro..." />
+                                <textarea className="input-field" rows="2" value={form.observations} onChange={e => setForm({ ...form, observations: e.target.value })} placeholder="Mais detalhes (Ex: arranhões, avisos, etc)..." />
                             </div>
 
                             <div className="input-group">

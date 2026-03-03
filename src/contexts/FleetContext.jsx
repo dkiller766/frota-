@@ -79,7 +79,8 @@ export const FleetProvider = ({ children }) => {
                         area: v.area,
                         company_id: v.company_id,
                         maintenanceReason: pendingMnt ? pendingMnt.description : null,
-                        maintenanceDate: pendingMnt ? pendingMnt.service_date : null
+                        maintenanceDate: pendingMnt ? pendingMnt.service_date : null,
+                        userName: pendingMnt ? pendingMnt.requester_name : null
                     };
                 });
                 setVehicles(adaptedVehicles);
@@ -173,7 +174,8 @@ export const FleetProvider = ({ children }) => {
                     service_date: date,
                     company_id: user.company_id,
                     mileage_at_service: vehicles.find(v => v.id === vehicleId)?.currentKm || 0,
-                    status: 'PENDING'
+                    status: 'PENDING',
+                    requester_name: user?.name || 'Sistema'
                 }]);
 
             fetchData();
@@ -314,12 +316,35 @@ export const FleetProvider = ({ children }) => {
                 vehicle_id: checklistData.vehicleId,
                 user_id: user.id,
                 company_id: user.company_id,
-                tires: checklistData.tires,
-                oil: checklistData.oil,
+
+                type: checklistData.type,
+
+                macaco: checklistData.macaco,
+                estepe: checklistData.estepe,
+                chave_roda: checklistData.chaveRoda,
+                triangulo: checklistData.triangulo,
+                radio: checklistData.radio,
+                antena: checklistData.antena,
+                sem_parar: checklistData.semParar,
+                tapetes: checklistData.tapetes,
+                calotas: checklistData.calotas,
+                extintor: checklistData.extintor,
+                cartao_ticket_car: checklistData.cartaoTicketCar,
+                ar_condicionado: checklistData.arCondicionado,
+                crlv: checklistData.crlv,
+                bateria: checklistData.bateria,
+                trava: checklistData.trava,
+                manual: checklistData.manual,
+                giroflex: checklistData.giroflex,
+
+                pneus_dianteiros: checklistData.pneusDianteiros,
+                pneus_traseiros: checklistData.pneusTraseiros,
+                pneu_estepe: checklistData.pneuEstepe,
+
+                current_km: checklistData.currentKm ? Number(checklistData.currentKm) : 0,
+                km_photo: checklistData.kmPhoto || null,
+
                 fuel_level: checklistData.fuelLevel,
-                lights: checklistData.lights,
-                windows_mirrors: checklistData.windowsMirrors,
-                cleanliness: checklistData.cleanliness,
                 damages_diagram: checklistData.damagesDiagram,
                 observations: checklistData.observations,
                 performer_name: performerName,
@@ -330,6 +355,20 @@ export const FleetProvider = ({ children }) => {
             console.error('Erro ao salvar checklist no Supabase:', error);
             console.error('Detalhes do erro:', JSON.stringify(error, null, 2));
             return { success: false, message: error.message || 'Erro desconhecido ao salvar' };
+        }
+
+        // Atualiza também o KM atual do veículo em si para mante-lo sincronizado
+        if (checklistData.currentKm) {
+            const { error: errorKm } = await supabase
+                .from('vehicles')
+                .update({
+                    current_mileage: Number(checklistData.currentKm)
+                })
+                .eq('id', checklistData.vehicleId);
+
+            if (!errorKm) {
+                setVehicles(prev => prev.map(v => v.id === checklistData.vehicleId ? { ...v, currentKm: Number(checklistData.currentKm) } : v));
+            }
         }
 
         // To ensure we get fresh data immediately on the history page:

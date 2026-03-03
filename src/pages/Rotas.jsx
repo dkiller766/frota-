@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { canDefineRoutes, canCompleteRoutes } from '../utils/permissions';
-import { Navigation, Route as RouteIcon, Send, Map as MapIcon, ChevronDown, ChevronUp, Plus, Trash2, Edit2, CheckCircle, Clock, MapPin } from 'lucide-react';
+import { Navigation, Route as RouteIcon, Send, Map as MapIcon, ChevronDown, ChevronUp, Plus, Trash2, Edit2, CheckCircle, Clock, MapPin, GripVertical } from 'lucide-react';
 import { MapContainer, TileLayer, Polyline, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
@@ -18,7 +18,7 @@ import { useFleet } from '../contexts/FleetContext';
 
 export default function Rotas() {
     const { user, getCompanyUsers } = useAuth();
-    const { routes, loading, addRoute, editRoute, deleteRoute, updateRouteStatus } = useFleet();
+    const { routes, stations, loading, addRoute, editRoute, deleteRoute, updateRouteStatus } = useFleet();
     const allowDefine = canDefineRoutes(user?.role);
     const allowComplete = canCompleteRoutes(user?.role);
 
@@ -46,6 +46,7 @@ export default function Rotas() {
 
     const [expandedRoute, setExpandedRoute] = useState(null);
     const [routeData, setRouteData] = useState({}); // { id: { coords: [], loading: false, error: null, bounds: [], distance: 0, duration: 0, waypoints: [] } }
+    const [draggedIndex, setDraggedIndex] = useState(null);
 
     if (loading || loadingUsers) {
         return (
@@ -57,6 +58,15 @@ export default function Rotas() {
 
     const geocodeAddress = async (address) => {
         if (!address.trim()) return null;
+
+        const matchedStation = stations?.find(s =>
+            (s.address && s.address.toLowerCase() === address.trim().toLowerCase()) ||
+            s.name.toLowerCase() === address.trim().toLowerCase()
+        );
+        if (matchedStation && matchedStation.position) {
+            return matchedStation.position;
+        }
+
         try {
             const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`);
             const data = await res.json();
@@ -142,6 +152,35 @@ export default function Rotas() {
         if (newPoints.length <= 2) return; // Mínimo 2 pontos
         const updatedPoints = newPoints.filter((_, i) => i !== index);
         setNewPoints(updatedPoints);
+    };
+
+    const handleDragStart = (e, index) => {
+        setDraggedIndex(index);
+        e.dataTransfer.effectAllowed = "move";
+        // Opcional: esconder o ghost image padrão se ficar feio
+    };
+
+    const handleDragOver = (e, index) => {
+        e.preventDefault(); // Necessário para permitir o drop
+        e.dataTransfer.dropEffect = "move";
+    };
+
+    const handleDrop = (e, dropIndex) => {
+        e.preventDefault();
+        if (draggedIndex === null || draggedIndex === dropIndex) return;
+
+        const updatedPoints = [...newPoints];
+        const draggedPoint = updatedPoints[draggedIndex];
+
+        updatedPoints.splice(draggedIndex, 1);
+        updatedPoints.splice(dropIndex, 0, draggedPoint);
+
+        setNewPoints(updatedPoints);
+        setDraggedIndex(null);
+    };
+
+    const handleDragEnd = () => {
+        setDraggedIndex(null);
     };
 
     const openAddModal = () => {
@@ -377,15 +416,33 @@ export default function Rotas() {
                         <form onSubmit={handleSaveRoute} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                                 {newPoints.map((pt, idx) => (
-                                    <div key={idx} className="input-group" style={{ display: 'flex', alignItems: 'flex-end', gap: '0.5rem', marginBottom: 0 }}>
+                                    <div
+                                        key={idx} // Usamos o indice pois podem haver endereços repetidos
+                                        className={`input-group ${draggedIndex === idx ? 'dragging' : ''}`}
+                                        draggable
+                                        onDragStart={(e) => handleDragStart(e, idx)}
+                                        onDragOver={(e) => handleDragOver(e, idx)}
+                                        onDrop={(e) => handleDrop(e, idx)}
+                                        onDragEnd={handleDragEnd}
+                                        style={{
+                                            display: 'flex', alignItems: 'flex-end', gap: '0.5rem', marginBottom: 0,
+                                            padding: '0.5rem', borderRadius: '0.5rem', backgroundColor: draggedIndex === idx ? 'var(--bg-secondary)' : 'transparent',
+                                            border: draggedIndex === idx ? '2px dashed var(--primary)' : '1px solid transparent',
+                                            opacity: draggedIndex === idx ? 0.5 : 1, transition: 'all 0.2s', cursor: 'grab'
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', paddingBottom: '0.75rem', color: 'var(--text-secondary)' }}>
+                                            <GripVertical size={20} style={{ cursor: 'grab' }} />
+                                        </div>
                                         <div style={{ flex: 1 }}>
-                                            <label className="input-label" style={{ marginBottom: '0.25rem' }}>
+                                            <label className="input-label" style={{ marginBottom: '0.25rem', pointerEvents: 'none' }}>
                                                 {idx === 0 ? 'Partida (Origem)' : (idx === newPoints.length - 1 ? 'Destino Final' : `Parada ${idx}`)}
                                             </label>
                                             <input
                                                 type="text"
+                                                list="stations-list"
                                                 className="input-field"
-                                                placeholder="Rua, Número, Cidade, UF"
+                                                placeholder="Endereço ou Nome do Posto"
                                                 value={pt}
                                                 onChange={e => handlePointChange(idx, e.target.value)}
                                                 required
@@ -399,6 +456,12 @@ export default function Rotas() {
                                     </div>
                                 ))}
                             </div>
+
+                            <datalist id="stations-list">
+                                {stations?.map(s => (
+                                    <option key={s.id} value={s.address || s.name}>{s.name}</option>
+                                ))}
+                            </datalist>
 
                             <button type="button" onClick={addPoint} className="btn btn-outline" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', borderStyle: 'dashed' }}>
                                 <Plus size={16} /> Adicionar Parada Intermediária
