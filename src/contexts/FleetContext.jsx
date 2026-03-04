@@ -44,7 +44,7 @@ export const FleetProvider = ({ children }) => {
                 supabase.from('fuel_stations').select('*').eq('company_id', user.company_id).order('name', { ascending: true }).limit(10000),
                 supabase.from('vehicles').select('*').eq('company_id', user.company_id).order('model', { ascending: true }).limit(10000),
                 supabase.from('maintenance_records').select('*').eq('company_id', user.company_id).eq('status', 'PENDING').limit(10000),
-                supabase.from('routes').select('*').eq('company_id', user.company_id).order('created_at', { ascending: false }).limit(10000)
+                supabase.from('routes').select('*').eq('company_id', user.company_id).order('order_index', { ascending: true }).limit(10000)
             ]);
 
             const stationsData = stationsRes?.data || [];
@@ -590,7 +590,8 @@ export const FleetProvider = ({ children }) => {
                 driver_name: routeData.driver,
                 company_id: user.company_id,
                 status: 'AGENDADA',
-                observations: routeData.observations || null
+                observations: routeData.observations || null,
+                order_index: (routes.length > 0) ? Math.max(...routes.map(r => r.order_index || 0)) + 1 : 1
             }]);
 
         if (!error) fetchData();
@@ -627,6 +628,21 @@ export const FleetProvider = ({ children }) => {
         if (!error) fetchData();
     };
 
+    const updateRoutesOrder = async (reorderedRoutes) => {
+        if (!supabase) return;
+
+        // Update each route with its new order_index
+        const promises = reorderedRoutes.map((route, index) =>
+            supabase
+                .from('routes')
+                .update({ order_index: index + 1 })
+                .eq('id', route.id)
+        );
+
+        await Promise.all(promises);
+        fetchData(true);
+    };
+
     return (
         <FleetContext.Provider value={{
             vehicles,
@@ -648,6 +664,7 @@ export const FleetProvider = ({ children }) => {
             editRoute,
             deleteRoute,
             updateRouteStatus,
+            updateRoutesOrder,
             submitChecklist,
             getChecklists,
             updateChecklist,
