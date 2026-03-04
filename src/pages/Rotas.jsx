@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { canDefineRoutes, canCompleteRoutes } from '../utils/permissions';
-import { Navigation, Route as RouteIcon, Send, Map as MapIcon, ChevronDown, ChevronUp, Plus, Trash2, Edit2, CheckCircle, Clock, MapPin, GripVertical } from 'lucide-react';
+import { Navigation, Route as RouteIcon, Send, Map as MapIcon, ChevronDown, ChevronUp, Plus, Trash2, Edit2, CheckCircle, Clock, MapPin, GripVertical, Share2, Copy, ExternalLink } from 'lucide-react';
 import { MapContainer, TileLayer, Polyline, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
@@ -261,6 +261,25 @@ export default function Rotas() {
             setLoadingCreation(false);
         }
     };
+    const handleShareWaze = (route) => {
+        const lastPoint = route.points[route.points.length - 1];
+        const url = `https://waze.com/ul?q=${encodeURIComponent(lastPoint)}&navigate=yes`;
+        window.open(url, '_blank');
+    };
+
+    const handleShareGoogleMaps = (route) => {
+        const origin = route.points[0];
+        const destination = route.points[route.points.length - 1];
+        const waypoints = route.points.slice(1, -1).join('|');
+        const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}${waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : ''}`;
+        window.open(url, '_blank');
+    };
+
+    const handleCopyRoute = (route) => {
+        const text = route.points.map((p, i) => `${i + 1}. ${p}`).join('\n');
+        navigator.clipboard.writeText(text);
+        alert('Roteiro copiado para a área de transferência!');
+    };
 
     return (
         <div style={{ maxWidth: '1000px', margin: '0 auto', position: 'relative' }}>
@@ -337,6 +356,15 @@ export default function Rotas() {
 
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem', marginLeft: 'auto' }}>
                             <div style={{ display: 'flex', gap: '0.25rem' }}>
+                                <button className="btn btn-ghost" onClick={() => handleCopyRoute(r)} title="Copiar Endereços" style={{ padding: '0.5rem', color: 'var(--text-secondary)' }}>
+                                    <Copy size={20} />
+                                </button>
+                                <button className="btn btn-ghost" onClick={() => handleShareGoogleMaps(r)} title="Abrir no Google Maps" style={{ padding: '0.5rem', color: '#4285F4' }}>
+                                    <ExternalLink size={20} />
+                                </button>
+                                <button className="btn btn-ghost" onClick={() => handleShareWaze(r)} title="Abrir no Waze" style={{ padding: '0.5rem', color: '#33CCFF' }}>
+                                    <Navigation size={20} />
+                                </button>
                                 {allowComplete && r.status !== 'CONCLUÍDA' && (
                                     <button className="btn btn-ghost" onClick={() => handleComplete(r.id)} title="Marcar como Concluída" style={{ padding: '0.5rem', color: 'var(--success)' }}>
                                         <CheckCircle size={20} />
