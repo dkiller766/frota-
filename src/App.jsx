@@ -8,6 +8,7 @@ const Register = lazy(() => import('./pages/Register'));
 const DashboardLayout = lazy(() => import('./layouts/DashboardLayout'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Veiculos = lazy(() => import('./pages/Veiculos'));
+const Motos = lazy(() => import('./pages/Motos'));
 const Postos = lazy(() => import('./pages/Postos'));
 const Rotas = lazy(() => import('./pages/Rotas'));
 const Equipe = lazy(() => import('./pages/Equipe'));
@@ -31,6 +32,7 @@ function App() {
           <Route element={<DashboardLayout />}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/veiculos" element={<Veiculos />} />
+            <Route path="/motos" element={<Motos />} />
             <Route path="/postos" element={<Postos />} />
             <Route path="/rotas" element={<Rotas />} />
             <Route path="/equipe" element={<Equipe />} />

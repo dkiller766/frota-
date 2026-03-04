@@ -1,0 +1,1 @@
+const a=n=>n==="ADMIN",t=n=>n==="ADMIN"||n==="LIDER"||n==="FUNCIONARIO_POSTO",e=n=>n==="ADMIN"||n==="LIDER",s=n=>n==="ADMIN",c=n=>n==="ADMIN"||n==="LIDER"||n==="COLABORADOR";export{t as a,s as b,a as c,e as d,c as e};

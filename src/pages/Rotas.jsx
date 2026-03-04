@@ -43,6 +43,7 @@ export default function Rotas() {
     // Agora newPoints é um array de strings (endereços)
     const [newPoints, setNewPoints] = useState(['', '']);
     const [newDriver, setNewDriver] = useState('');
+    const [newObservations, setNewObservations] = useState('');
 
     const [expandedRoute, setExpandedRoute] = useState(null);
     const [routeData, setRouteData] = useState({}); // { id: { coords: [], loading: false, error: null, bounds: [], distance: 0, duration: 0, waypoints: [] } }
@@ -187,6 +188,7 @@ export default function Rotas() {
         setEditingRoute(null);
         setNewPoints(['', '']);
         setNewDriver('');
+        setNewObservations('');
         setShowModal(true);
     };
 
@@ -194,6 +196,7 @@ export default function Rotas() {
         setEditingRoute(route.id);
         setNewPoints([...route.points]);
         setNewDriver(route.driver);
+        setNewObservations(route.observations || '');
         setShowModal(true);
     };
 
@@ -237,6 +240,7 @@ export default function Rotas() {
                 await editRoute(editingRoute, {
                     points: validPoints,
                     driver: newDriver,
+                    observations: newObservations
                 });
                 // Clear cache for this route so it fetches again
                 setRouteData(prev => { const next = { ...prev }; delete next[editingRoute]; return next; });
@@ -244,7 +248,8 @@ export default function Rotas() {
             } else {
                 await addRoute({
                     points: validPoints,
-                    driver: newDriver
+                    driver: newDriver,
+                    observations: newObservations
                 });
             }
 
@@ -321,6 +326,13 @@ export default function Rotas() {
                                     {r.status}
                                 </span>
                             </div>
+
+                            {r.observations && (
+                                <div style={{ marginTop: '0.5rem', backgroundColor: 'var(--bg-primary)', padding: '0.75rem', borderRadius: '0.5rem', border: '1px solid var(--border-color)', maxWidth: '250px' }}>
+                                    <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 'bold', marginBottom: '0.25rem' }}>Observações</p>
+                                    <p style={{ fontSize: '0.8rem', fontStyle: 'italic', wordBreak: 'break-word' }}>"{r.observations}"</p>
+                                </div>
+                            )}
                         </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem', marginLeft: 'auto' }}>
@@ -477,6 +489,17 @@ export default function Rotas() {
                                         </option>
                                     ))}
                                 </select>
+                            </div>
+
+                            <div className="input-group" style={{ marginTop: '0.5rem' }}>
+                                <label className="input-label">Observações (Opcional)</label>
+                                <textarea
+                                    className="input-field"
+                                    rows="3"
+                                    placeholder="Ex: Pegar chave no posto 2, carregar caixas vermelhas..."
+                                    value={newObservations}
+                                    onChange={e => setNewObservations(e.target.value)}
+                                ></textarea>
                             </div>
 
                             <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>

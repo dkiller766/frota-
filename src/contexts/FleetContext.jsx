@@ -41,18 +41,21 @@ export const FleetProvider = ({ children }) => {
         try {
             // Parallel Fetch
             const [stationsRes, vehiclesRes, mntRes, routesRes] = await Promise.all([
-                supabase.from('fuel_stations').select('*').eq('company_id', user.company_id),
-                supabase.from('vehicles').select('*').eq('company_id', user.company_id),
-                supabase.from('maintenance_records').select('*').eq('company_id', user.company_id).eq('status', 'PENDING'),
-                supabase.from('routes').select('*').eq('company_id', user.company_id)
+                supabase.from('fuel_stations').select('*').eq('company_id', user.company_id).order('name', { ascending: true }).limit(10000),
+                supabase.from('vehicles').select('*').eq('company_id', user.company_id).order('model', { ascending: true }).limit(10000),
+                supabase.from('maintenance_records').select('*').eq('company_id', user.company_id).eq('status', 'PENDING').limit(10000),
+                supabase.from('routes').select('*').eq('company_id', user.company_id).order('created_at', { ascending: false }).limit(10000)
             ]);
 
-            const stationsData = stationsRes.data;
-            const vehiclesData = vehiclesRes.data;
-            const mntData = mntRes.data;
-            const routesData = routesRes.data;
+            const stationsData = stationsRes?.data || [];
+            const vehiclesData = vehiclesRes?.data || [];
+            const mntData = mntRes?.data || [];
+            const routesData = routesRes?.data || [];
+
+            console.log("[FleetContext] stationsRes:", { error: stationsRes?.error, count: stationsData.length });
 
             if (stationsData) {
+                console.log("[FleetContext] Mapped stationsData sample:", stationsData.slice(0, 2));
                 setStations(stationsData.map(s => {
                     const lat = parseFloat(s.latitude);
                     const lon = parseFloat(s.longitude);
@@ -66,7 +69,7 @@ export const FleetProvider = ({ children }) => {
             }
             if (vehiclesData) {
                 const adaptedVehicles = vehiclesData.map(v => {
-                    const pendingMnt = mntData?.find(m => m.vehicle_id === v.id);
+                    const pendingMnt = mntData.find(m => m.vehicle_id === v.id);
                     return {
                         id: v.id,
                         plate: v.plate,
@@ -78,6 +81,7 @@ export const FleetProvider = ({ children }) => {
                         prefix: v.prefix,
                         area: v.area,
                         company_id: v.company_id,
+                        type: v.type,
                         maintenanceReason: pendingMnt ? pendingMnt.description : null,
                         maintenanceDate: pendingMnt ? pendingMnt.service_date : null,
                         userName: pendingMnt ? pendingMnt.requester_name : null
@@ -209,26 +213,34 @@ export const FleetProvider = ({ children }) => {
     };
 
     const addVehicle = async (vehicleData) => {
-        if (!supabase || !user?.company_id) return;
-        const { error } = await supabase
-            .from('vehicles')
-            .insert([{
-                plate: vehicleData.plate,
-                model: vehicleData.model,
-                prefix: vehicleData.prefix,
-                area: vehicleData.area,
-                current_mileage: vehicleData.currentKm,
-                next_maintenance_mileage: vehicleData.revisionKm,
-                current_station_id: vehicleData.stationId,
-                company_id: user.company_id,
-                status: 'AVAILABLE'
-            }]);
+        try {
+            if (!supabase || !user?.company_id) return { success: false, message: 'Não autorizado.' };
 
-        if (!error) {
-            fetchData();
-        } else {
-            console.error('Erro ao adicionar veículo:', error);
-            alert('Erro ao adicionar veículo: ' + error.message);
+            const { error } = await supabase
+                .from('vehicles')
+                .insert([{
+                    plate: vehicleData.plate,
+                    model: vehicleData.model,
+                    prefix: vehicleData.prefix,
+                    area: vehicleData.area,
+                    current_mileage: vehicleData.currentKm,
+                    next_maintenance_mileage: vehicleData.revisionKm,
+                    current_station_id: vehicleData.stationId,
+                    company_id: user.company_id,
+                    status: 'AVAILABLE',
+                    type: vehicleData.type || 'CARRO'
+                }]);
+
+            if (!error) {
+                fetchData(true);
+                return { success: true };
+            } else {
+                console.error('Erro ao adicionar veículo:', error);
+                return { success: false, message: error.message || JSON.stringify(error) };
+            }
+        } catch (err) {
+            console.error('Catch no addVehicle:', err);
+            return { success: false, message: String(err) };
         }
     };
 
@@ -238,7 +250,8 @@ export const FleetProvider = ({ children }) => {
         const vehiclesToInsert = vehicles.map(v => ({
             ...v,
             company_id: user.company_id,
-            status: 'AVAILABLE'
+            status: 'AVAILABLE',
+            type: v.type || 'CARRO'
         }));
 
         const { error } = await supabase
@@ -255,23 +268,33 @@ export const FleetProvider = ({ children }) => {
     };
 
     const editVehicle = async (vehicleId, updatedData) => {
-        const { error } = await supabase
-            .from('vehicles')
-            .update({
-                plate: updatedData.plate,
-                model: updatedData.model,
-                prefix: updatedData.prefix,
-                area: updatedData.area,
-                current_station_id: updatedData.stationId,
-                current_mileage: updatedData.currentKm
-            })
-            .eq('id', vehicleId);
+        try {
+            if (!supabase || !user?.company_id) return { success: false, message: 'Não autorizado.' };
 
-        if (!error) {
-            fetchData();
-        } else {
-            console.error('Erro ao editar veículo:', error);
-            alert('Erro ao editar veículo: ' + error.message);
+            const { error } = await supabase
+                .from('vehicles')
+                .update({
+                    plate: updatedData.plate,
+                    model: updatedData.model,
+                    prefix: updatedData.prefix || null,
+                    area: updatedData.area || null,
+                    current_station_id: updatedData.stationId,
+                    current_mileage: updatedData.currentKm,
+                    type: updatedData.type || 'CARRO'
+                })
+                .eq('id', vehicleId)
+                .eq('company_id', user.company_id);
+
+            if (!error) {
+                fetchData(true);
+                return { success: true };
+            } else {
+                console.error('Erro ao editar veículo:', error);
+                return { success: false, message: error.message || JSON.stringify(error) };
+            }
+        } catch (err) {
+            console.error('Catch no editVehicle:', err);
+            return { success: false, message: String(err) };
         }
     };
 
@@ -391,7 +414,8 @@ export const FleetProvider = ({ children }) => {
                 )
             `)
             .eq('company_id', user.company_id)
-            .order('created_at', { ascending: false });
+            .order('created_at', { ascending: false })
+            .limit(5000);
 
         // Restringir visibilidade para Colaboradores e Funcionários de Posto
         if (user?.role !== 'ADMIN' && user?.role !== 'LIDER') {
@@ -448,22 +472,31 @@ export const FleetProvider = ({ children }) => {
     };
 
     const addStation = async (stationData) => {
-        if (!supabase || !user?.company_id) return;
-        const { error } = await supabase
-            .from('fuel_stations')
-            .insert([{
-                name: stationData.name,
-                address: stationData.address,
-                latitude: stationData.position?.[0],
-                longitude: stationData.position?.[1],
-                company_id: user.company_id
-            }]);
+        try {
+            if (!supabase || !user?.company_id) return { success: false, message: 'Não autorizado. Faltando Company ID.' };
 
-        if (!error) {
-            fetchData();
-        } else {
-            console.error('Erro ao adicionar posto:', error);
-            alert('Erro ao adicionar posto: ' + error.message);
+            const { error } = await supabase
+                .from('fuel_stations')
+                .insert([{
+                    name: stationData.name,
+                    address: stationData.address,
+                    latitude: stationData.position?.[0] || null,
+                    longitude: stationData.position?.[1] || null,
+                    company_id: user.company_id,
+                    partner: stationData.partner || false
+                }]);
+
+            if (!error) {
+                console.log("[FleetContext] addStation succeeded. Invoking fetchData(true).");
+                fetchData(true);
+                return { success: true };
+            } else {
+                console.error('[FleetContext] Erro ao adicionar posto no DB:', error);
+                return { success: false, message: error.message || JSON.stringify(error) };
+            }
+        } catch (err) {
+            console.error('Catch no addStation:', err);
+            return { success: false, message: String(err) };
         }
     };
 
@@ -490,21 +523,37 @@ export const FleetProvider = ({ children }) => {
     };
 
     const editStation = async (stationId, updatedData) => {
-        const { error } = await supabase
-            .from('fuel_stations')
-            .update({
-                name: updatedData.name,
-                address: updatedData.address,
-                latitude: updatedData.position?.[0],
-                longitude: updatedData.position?.[1]
-            })
-            .eq('id', stationId);
+        try {
+            if (!supabase || !user?.company_id) return { success: false, message: 'Não autorizado.' };
 
-        if (!error) {
-            fetchData();
-        } else {
-            console.error('Erro ao editar posto:', error);
-            alert('Erro ao editar posto: ' + error.message);
+            const updateObject = {
+                name: updatedData.name,
+                address: updatedData.address
+            };
+
+            // Somente sobrescreve coordenadas se o Mapa de Geoconding retornou nova Posição
+            if (updatedData.position && updatedData.position.length === 2) {
+                updateObject.latitude = updatedData.position[0];
+                updateObject.longitude = updatedData.position[1];
+            }
+
+            const { error } = await supabase
+                .from('fuel_stations')
+                .update(updateObject)
+                .eq('id', stationId)
+                .eq('company_id', user.company_id);
+
+            if (!error) {
+                console.log("[FleetContext] editStation succeeded. Invoking fetchData(true).");
+                fetchData(true);
+                return { success: true };
+            } else {
+                console.error('[FleetContext] Erro ao editar posto no DB:', error);
+                return { success: false, message: error.message || JSON.stringify(error) };
+            }
+        } catch (err) {
+            console.error('Catch no editStation:', err);
+            return { success: false, message: String(err) };
         }
     };
 
@@ -514,7 +563,7 @@ export const FleetProvider = ({ children }) => {
             .delete()
             .eq('id', stationId);
 
-        if (!error) fetchData();
+        if (!error) fetchData(true);
     };
 
     const vehiclesByStationMap = React.useMemo(() => {
@@ -540,7 +589,8 @@ export const FleetProvider = ({ children }) => {
                 points: routeData.points,
                 driver_name: routeData.driver,
                 company_id: user.company_id,
-                status: 'AGENDADA'
+                status: 'AGENDADA',
+                observations: routeData.observations || null
             }]);
 
         if (!error) fetchData();
@@ -551,7 +601,8 @@ export const FleetProvider = ({ children }) => {
             .from('routes')
             .update({
                 points: updatedData.points,
-                driver_name: updatedData.driver
+                driver_name: updatedData.driver,
+                observations: updatedData.observations || null
             })
             .eq('id', routeId);
 
@@ -601,6 +652,7 @@ export const FleetProvider = ({ children }) => {
             getChecklists,
             updateChecklist,
             deleteChecklist,
+            fetchData,
             getVehiclesByStation,
             refreshData: fetchData
         }}>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Map, Car, MapPin, Navigation, LogOut, Users, Wrench, ClipboardCheck } from 'lucide-react';
+import { Map, Car, Bike, MapPin, Navigation, LogOut, Users, Wrench, ClipboardCheck } from 'lucide-react';
 
 export default function DashboardLayout() {
     const { user, logout } = useAuth();
@@ -15,6 +15,7 @@ export default function DashboardLayout() {
     const menuItems = React.useMemo(() => {
         const items = [
             { path: '/veiculos', label: 'Veículos', icon: <Car size={24} /> },
+            { path: '/motos', label: 'Motos', icon: <Bike size={24} /> },
             { path: '/checklist-historico', label: 'Histórico Checklists', icon: <ClipboardCheck size={24} /> }
         ];
 

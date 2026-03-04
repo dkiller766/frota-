@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useFleet } from '../contexts/FleetContext';
 import { canAddFuelStations } from '../utils/permissions';
@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx';
 export default function Postos() {
     const { user } = useAuth();
     const allowAdd = canAddFuelStations(user?.role);
-    const { stations, loading, addStation, editStation, deleteStation, bulkAddStations, getVehiclesByStation } = useFleet();
+    const { stations, loading, addStation, editStation, deleteStation, bulkAddStations, getVehiclesByStation, refreshData } = useFleet();
 
     const handleImportSpreadsheet = async (e) => {
         const file = e.target.files[0];
@@ -140,6 +140,12 @@ export default function Postos() {
     const [newAddress, setNewAddress] = useState('');
     const [expandedStation, setExpandedStation] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [errorMsg, setErrorMsg] = useState('');
+
+    // Geocoding em massa para postos sem coordenadas
+    const [isGeocoding, setIsGeocoding] = useState(false);
+    const [geocodeProgress, setGeocodeProgress] = useState(0);
+    const cancelGeocodeRef = useRef(false);
 
     const filteredStations = useMemo(() => {
         if (!searchTerm.trim()) return stations;
@@ -162,13 +168,15 @@ export default function Postos() {
         setEditingStation(null);
         setNewName('');
         setNewAddress('');
+        setErrorMsg('');
         setShowModal(true);
     };
 
     const openEditModal = (station) => {
         setEditingStation(station.id);
-        setNewName(station.name);
-        setNewAddress(station.address);
+        setNewName(station.name || '');
+        setNewAddress(station.address || '');
+        setErrorMsg('');
         setShowModal(true);
     };
 
@@ -180,14 +188,20 @@ export default function Postos() {
 
     const handleAddStation = async (e) => {
         e.preventDefault();
-        if (!allowAdd) return;
+        setErrorMsg('');
+
+        if (!allowAdd) {
+            setErrorMsg('Você não tem permissão para adicionar postos.');
+            return;
+        }
 
         setLoadingMap(true);
-        try {
-            const isEditing = !!editingStation;
-            const currentStation = isEditing ? stations.find(s => s.id === editingStation) : null;
-            let position = null;
+        let position = null;
+        const isEditing = !!editingStation;
+        const currentStation = isEditing ? stations.find(s => s.id === editingStation) : null;
 
+        // Bloco try-catch isolado para a requisição de Geolocalização (Mapas)
+        try {
             if (!isEditing || currentStation?.address !== newAddress) {
                 const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(newAddress)}`);
                 const data = await response.json();
@@ -196,28 +210,78 @@ export default function Postos() {
                 if (data && data.length > 0) {
                     position = [parseFloat(data[0].lat), parseFloat(data[0].lon)];
                 } else {
-                    alert('Endereço não encontrado com precisão no mapa. Usando localização padrão.');
+                    console.warn('Endereço não encontrado com precisão no mapa. Usando localização padrão.');
                 }
             }
+        } catch (error) {
+            console.error('Erro ao buscar endereço:', error);
+            position = [-23.550520, -46.633308]; // Fallback
+        }
 
+        // Bloco try-catch para lidar exclusivamente com o salvamento no Supabase
+        try {
+            let result;
             if (isEditing) {
                 const updateData = { name: newName, address: newAddress };
                 if (position) updateData.position = position;
-                editStation(editingStation, updateData);
+                result = await editStation(editingStation, updateData);
             } else {
-                addStation({ name: newName, address: newAddress, partner: false, position });
+                result = await addStation({ name: newName, address: newAddress, partner: false, position });
             }
 
-            setShowModal(false);
-            setNewName('');
-            setNewAddress('');
-            setEditingStation(null);
+            if (result && result.success) {
+                setShowModal(false);
+                setNewName('');
+                setNewAddress('');
+                setEditingStation(null);
+            } else {
+                setErrorMsg('Falha do Servidor: ' + (result?.message || 'Erro Desconhecido'));
+            }
         } catch (error) {
-            console.error('Erro ao buscar endereço:', error);
-            alert('Erro de conexão ao buscar endereço.');
+            console.error('Erro Catastrófico ao Salvar Posto:', error);
+            setErrorMsg('Falha Crítica do App: ' + error.message);
         } finally {
             setLoadingMap(false);
         }
+    };
+
+    const handleBulkGeocode = async () => {
+        const missingCoords = stations.filter(s => !s.position);
+        if (missingCoords.length === 0) return;
+
+        setIsGeocoding(true);
+        setGeocodeProgress(0);
+        cancelGeocodeRef.current = false;
+
+        for (let i = 0; i < missingCoords.length; i++) {
+            if (cancelGeocodeRef.current) break;
+            const station = missingCoords[i];
+            try {
+                // Nominatim limit: 1 request per second
+                await new Promise(resolve => setTimeout(resolve, 1500));
+
+                const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(station.address)}`);
+                const data = await response.json();
+
+                if (data && data.length > 0) {
+                    const lat = parseFloat(data[0].lat);
+                    const lon = parseFloat(data[0].lon);
+
+                    // Atualizar apenas as coordenadas
+                    await editStation(station.id, {
+                        name: station.name,
+                        address: station.address,
+                        position: [lat, lon]
+                    });
+                }
+            } catch (err) {
+                console.error(`Erro ao geocodificar ${station.name}:`, err);
+            }
+            setGeocodeProgress(i + 1);
+        }
+
+        setIsGeocoding(false);
+        setGeocodeProgress(0);
     };
 
     const toggleExpand = (stationId) => {
@@ -280,6 +344,30 @@ export default function Postos() {
                     )}
                 </div>
             </div>
+
+            {stations.filter(s => !s.position).length > 0 && allowAdd && (
+                <div style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', border: '1px solid var(--warning)', padding: '1rem', borderRadius: '0.75rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+                    <div>
+                        <h4 style={{ margin: 0, color: 'var(--warning)', fontWeight: 'bold' }}>{stations.filter(s => !s.position).length} Postos não estão aparecendo no mapa</h4>
+                        <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Eles foram importados sem coordenadas exatas. Deseja buscar a localização deles agora?</p>
+                    </div>
+                    {isGeocoding ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--warning)' }}>
+                                <div className="animate-spin" style={{ width: '16px', height: '16px', border: '2px solid currentColor', borderRightColor: 'transparent', borderRadius: '50%' }}></div>
+                                <span style={{ fontWeight: 'bold' }}>Buscando... {geocodeProgress} / {stations.filter(s => !s.position).length}</span>
+                            </div>
+                            <button onClick={() => { cancelGeocodeRef.current = true; }} className="btn btn-outline" style={{ borderColor: 'var(--danger)', color: 'var(--danger)', padding: '0.25rem 0.5rem', fontSize: '0.75rem', height: 'fit-content' }}>
+                                Cancelar
+                            </button>
+                        </div>
+                    ) : (
+                        <button onClick={handleBulkGeocode} className="btn btn-primary" style={{ backgroundColor: 'var(--warning)', color: 'white', border: 'none' }}>
+                            <MapPin size={16} /> Geolocalizar Agora
+                        </button>
+                    )}
+                </div>
+            )}
 
             {/* Barra de Pesquisa */}
             <div style={{ marginBottom: '1.5rem', position: 'relative' }}>
@@ -403,6 +491,11 @@ export default function Postos() {
                     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
                         <div className="glass animate-slide-up" style={{ width: '100%', maxWidth: '400px', padding: '2rem', borderRadius: '1rem' }}>
                             <h2 style={{ fontSize: '1.25rem', fontWeight: 'bold', marginBottom: '1.5rem' }}>{editingStation ? 'Editar Posto' : 'Adicionar Posto/Pátio'}</h2>
+                            {errorMsg && (
+                                <div style={{ padding: '0.75rem', marginBottom: '1rem', backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', borderRadius: '0.5rem', fontSize: '0.875rem' }}>
+                                    {errorMsg}
+                                </div>
+                            )}
                             <form onSubmit={handleAddStation} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                                 <div className="input-group">
                                     <label className="input-label">Nome do Estabelecimento</label>

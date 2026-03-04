@@ -12,7 +12,7 @@ import Tesseract from 'tesseract.js';
 
 export default function Veiculos() {
     const { user } = useAuth();
-    const { vehicles, stations, loading, addVehicle, bulkAddVehicles, editVehicle, deleteVehicle, updateVehicleKM, requestMaintenance, finishMaintenance } = useFleet();
+    const { vehicles, stations, loading, addVehicle, bulkAddVehicles, editVehicle, deleteVehicle, updateVehicleKM, requestMaintenance, finishMaintenance, refreshData } = useFleet();
 
     const allowAdd = canManageVehicles(user?.role);
     const allowMaintenance = canManageMaintenance(user?.role);
@@ -31,6 +31,7 @@ export default function Veiculos() {
     const [newArea, setNewArea] = useState('');
     const [newStationId, setNewStationId] = useState('');
     const [newInitialKm, setNewInitialKm] = useState('');
+    const [errorMsg, setErrorMsg] = useState('');
 
     // Estado Modal MNT
     const [mntReason, setMntReason] = useState('');
@@ -44,7 +45,7 @@ export default function Veiculos() {
     const [loadingImport, setLoadingImport] = useState(false);
 
     const filteredVehicles = React.useMemo(() => {
-        let list = vehicles;
+        let list = vehicles.filter(v => v.type === 'CARRO' || !v.type);
 
         // Filtro por Posto se for Funcionário de Posto
         if (user?.role === 'FUNCIONARIO_POSTO' && user?.station_id) {
@@ -76,17 +77,18 @@ export default function Veiculos() {
         setNewArea('');
         setNewStationId('');
         setNewInitialKm('');
+        setErrorMsg('');
         setShowModal(true);
     };
 
     const openEditModal = (v) => {
         setEditingVehicle(v.id);
-        setNewPlate(v.plate);
-        setNewModel(v.model);
+        setNewPlate(v.plate || '');
+        setNewModel(v.model || '');
         setNewPrefix(v.prefix || '');
         setNewArea(v.area || '');
         setNewStationId(v.stationId || '');
-        setNewInitialKm(v.currentKm);
+        setNewInitialKm(v.currentKm !== null && v.currentKm !== undefined ? v.currentKm : 0);
         setShowModal(true);
     };
 
@@ -155,7 +157,7 @@ export default function Veiculos() {
                             if (uuidRegex.test(stationRef)) {
                                 matchedStationId = stationRef;
                             } else {
-                                const station = stations.find(s => normalize(s.name) === normalize(stationRef));
+                                const station = (stations || []).find(s => normalize(s.name) === normalize(stationRef));
                                 if (station) matchedStationId = station.id;
                             }
                         }
@@ -203,7 +205,7 @@ export default function Veiculos() {
                 'Status': v.status,
                 'KM Atual': v.currentKm,
                 'Próxima Revisão': v.revisionKm,
-                'Posto/Pátio': stations.find(s => s.id === v.stationId)?.name || 'Nenhum'
+                'Posto/Pátio': (stations || []).find(s => s.id === v.stationId)?.name || 'Nenhum'
             }));
 
             const worksheet = XLSX.utils.json_to_sheet(dataToExport);
@@ -222,42 +224,59 @@ export default function Veiculos() {
         }
     };
 
-    const handleSaveVehicle = (e) => {
+    const handleSaveVehicle = async (e) => {
         e.preventDefault();
-        if (!allowAdd) return;
+        setErrorMsg('');
 
-        const initialKmNum = Number(newInitialKm) || 0;
-
-        if (editingVehicle) {
-            editVehicle(editingVehicle, {
-                plate: newPlate.toUpperCase(),
-                model: newModel,
-                prefix: newPrefix,
-                area: newArea,
-                stationId: newStationId || null,
-                currentKm: initialKmNum,
-            });
-        } else {
-            addVehicle({
-                plate: newPlate.toUpperCase(),
-                model: newModel,
-                prefix: newPrefix,
-                area: newArea,
-                stationId: newStationId || null,
-                currentKm: initialKmNum,
-                revisionKm: initialKmNum + 10000,
-                lastMaintenance: 'Nunca',
-            });
+        if (!allowAdd) {
+            setErrorMsg('Você não tem permissão para cadastrar ou editar.');
+            return;
         }
 
-        setShowModal(false);
-        setNewPlate('');
-        setNewModel('');
-        setNewPrefix('');
-        setNewArea('');
-        setNewStationId('');
-        setNewInitialKm('');
-        setEditingVehicle(null);
+        const initialKmNum = Number(newInitialKm) || 0;
+        let result = null;
+
+        try {
+            if (editingVehicle) {
+                result = await editVehicle(editingVehicle, {
+                    plate: newPlate.toUpperCase(),
+                    model: newModel,
+                    prefix: newPrefix || null,
+                    area: newArea || null,
+                    stationId: newStationId || null,
+                    currentKm: initialKmNum,
+                    type: 'CARRO'
+                });
+            } else {
+                result = await addVehicle({
+                    plate: newPlate.toUpperCase(),
+                    model: newModel,
+                    prefix: newPrefix || null,
+                    area: newArea || null,
+                    stationId: newStationId || null,
+                    currentKm: initialKmNum,
+                    revisionKm: initialKmNum + 10000,
+                    lastMaintenance: 'Nunca',
+                    type: 'CARRO'
+                });
+            }
+
+            if (result && result.success) {
+                setShowModal(false);
+                setNewPlate('');
+                setNewModel('');
+                setNewPrefix('');
+                setNewArea('');
+                setNewStationId('');
+                setNewInitialKm('');
+                setEditingVehicle(null);
+            } else {
+                setErrorMsg('Falha do Servidor: ' + (result?.message || 'Erro RLS Desconhecido'));
+            }
+        } catch (error) {
+            console.error('Erro Catastrófico ao Salvar Veículo:', error);
+            setErrorMsg('Falha Crítica do App: ' + error.message);
+        }
     };
 
     const handleUpdateKM = (e) => {
@@ -342,8 +361,8 @@ export default function Veiculos() {
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
                 <div>
-                    <h1 style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>Frota da Empresa</h1>
-                    <p style={{ color: 'var(--text-secondary)' }}>Controle veicular unificado</p>
+                    <h1 style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>Frota de Carros</h1>
+                    <p style={{ color: 'var(--text-secondary)' }}>Controle de veículos unificado</p>
                 </div>
 
                 {allowAdd && (
@@ -438,7 +457,7 @@ export default function Veiculos() {
 
                                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.75rem', fontWeight: '600' }}>
                                     <MapPin size={14} color="var(--text-secondary)" />
-                                    {v.stationId ? (stations.find(s => s.id === v.stationId)?.name || 'Posto Desconhecido') : 'Rota/Sem Pátio'}
+                                    {v.stationId ? ((stations || []).find(s => s.id === v.stationId)?.name || 'Posto Desconhecido') : 'Rota/Sem Pátio'}
                                 </div>
 
                                 <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.25rem' }}>
@@ -521,6 +540,11 @@ export default function Veiculos() {
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
                     <div className="glass animate-slide-up" style={{ width: '100%', maxWidth: '400px', padding: '2rem', borderRadius: '1rem' }}>
                         <h2 style={{ fontSize: '1.25rem', fontWeight: 'bold', marginBottom: '1.5rem' }}>{editingVehicle ? 'Editar Veículo' : 'Novo Veículo'}</h2>
+                        {errorMsg && (
+                            <div style={{ padding: '0.75rem', marginBottom: '1rem', backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', borderRadius: '0.5rem', fontSize: '0.875rem' }}>
+                                {errorMsg}
+                            </div>
+                        )}
                         <form onSubmit={handleSaveVehicle} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                             <div className="input-group">
                                 <label className="input-label">Placa do Veículo</label>
