@@ -18,7 +18,7 @@ import { useFleet } from '../contexts/FleetContext';
 
 export default function Rotas() {
     const { user, getCompanyUsers } = useAuth();
-    const { routes, stations, loading, addRoute, editRoute, deleteRoute, updateRouteStatus } = useFleet();
+    const { routes, stations, loading, addRoute, editRoute, deleteRoute, updateRouteStatus, updateRoutesOrder } = useFleet();
     const allowDefine = canDefineRoutes(user?.role);
     const allowComplete = canCompleteRoutes(user?.role);
 
@@ -48,6 +48,7 @@ export default function Rotas() {
     const [expandedRoute, setExpandedRoute] = useState(null);
     const [routeData, setRouteData] = useState({}); // { id: { coords: [], loading: false, error: null, bounds: [], distance: 0, duration: 0, waypoints: [] } }
     const [draggedIndex, setDraggedIndex] = useState(null);
+    const [draggedRouteIndex, setDraggedRouteIndex] = useState(null);
 
     if (loading || loadingUsers) {
         return (
@@ -213,6 +214,33 @@ export default function Rotas() {
         }
     };
 
+    const handleRouteDragStart = (e, index) => {
+        if (!allowDefine) return;
+        setDraggedRouteIndex(index);
+        e.dataTransfer.effectAllowed = "move";
+    };
+
+    const handleRouteDragOver = (e) => {
+        if (!allowDefine) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+    };
+
+    const handleRouteDrop = async (e, dropIndex) => {
+        if (!allowDefine) return;
+        e.preventDefault();
+        if (draggedRouteIndex === null || draggedRouteIndex === dropIndex) return;
+
+        const updatedRoutes = [...routes];
+        const draggedRoute = updatedRoutes[draggedRouteIndex];
+
+        updatedRoutes.splice(draggedRouteIndex, 1);
+        updatedRoutes.splice(dropIndex, 0, draggedRoute);
+
+        setDraggedRouteIndex(null);
+        await updateRoutesOrder(updatedRoutes);
+    };
+
     const handleSaveRoute = async (e) => {
         e.preventDefault();
         if (!allowDefine) return;
@@ -298,8 +326,32 @@ export default function Rotas() {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                {routes.filter(r => user?.role === 'COLABORADOR' ? r.driver === user.name : true).map(r => (
-                    <div key={r.id} className="glass animate-fade-in" style={{ padding: '1.5rem', borderRadius: '1rem', display: 'flex', flexWrap: 'wrap', gap: '1.5rem', alignItems: 'flex-start' }}>
+                {routes.filter(r => user?.role === 'COLABORADOR' ? r.driver === user.name : true).map((r, rIdx) => (
+                    <div
+                        key={r.id}
+                        className={`glass animate-fade-in ${draggedRouteIndex === rIdx ? 'dragging' : ''}`}
+                        draggable={allowDefine}
+                        onDragStart={(e) => handleRouteDragStart(e, rIdx)}
+                        onDragOver={handleRouteDragOver}
+                        onDrop={(e) => handleRouteDrop(e, rIdx)}
+                        style={{
+                            padding: '1.5rem',
+                            borderRadius: '1rem',
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: '1.5rem',
+                            alignItems: 'flex-start',
+                            border: draggedRouteIndex === rIdx ? '2px dashed var(--primary)' : '1px solid transparent',
+                            opacity: draggedRouteIndex === rIdx ? 0.5 : 1,
+                            cursor: allowDefine ? 'grab' : 'default'
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', marginBottom: '-0.5rem' }}>
+                            <span style={{ backgroundColor: 'var(--primary)', color: 'white', padding: '0.2rem 0.6rem', borderRadius: '1rem', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                                {rIdx + 1}ª Rota
+                            </span>
+                            {allowDefine && <GripVertical size={16} color="var(--text-secondary)" />}
+                        </div>
 
                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem', minWidth: '250px', flex: 1 }}>
                             <div style={{ background: 'rgba(59, 130, 246, 0.1)', padding: '0.75rem', borderRadius: '50%', marginTop: '0.25rem' }}>
