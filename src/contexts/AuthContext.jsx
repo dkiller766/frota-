@@ -342,7 +342,7 @@ export const AuthProvider = ({ children }) => {
             loading,
             bootstrapping
         }}>
-            {!bootstrapping && children}
+            {children}
         </AuthContext.Provider>
     );
 };
