@@ -63,7 +63,7 @@ export default function Rotas() {
 
         const matchedStation = stations?.find(s =>
             (s.address && s.address.toLowerCase() === address.trim().toLowerCase()) ||
-            s.name.toLowerCase() === address.trim().toLowerCase()
+            (s.name && s.name.toLowerCase() === address.trim().toLowerCase())
         );
         if (matchedStation && matchedStation.position) {
             return matchedStation.position;

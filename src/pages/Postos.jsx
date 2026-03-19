@@ -151,8 +151,8 @@ export default function Postos() {
         if (!searchTerm.trim()) return stations;
         const lowTerm = searchTerm.toLowerCase();
         return stations.filter(s =>
-            s.name.toLowerCase().includes(lowTerm) ||
-            s.address.toLowerCase().includes(lowTerm)
+            (s.name && s.name.toLowerCase().includes(lowTerm)) ||
+            (s.address && s.address.toLowerCase().includes(lowTerm))
         );
     }, [stations, searchTerm]);
 

@@ -55,8 +55,8 @@ export default function Motos() {
         if (!searchTerm.trim()) return list;
         const lowTerm = searchTerm.toLowerCase();
         return list.filter(v =>
-            v.plate.toLowerCase().includes(lowTerm) ||
-            v.model.toLowerCase().includes(lowTerm) ||
+            (v.plate && v.plate.toLowerCase().includes(lowTerm)) ||
+            (v.model && v.model.toLowerCase().includes(lowTerm)) ||
             (v.prefix && v.prefix.toLowerCase().includes(lowTerm))
         );
     }, [vehicles, searchTerm, user?.role, user?.station_id]);
